@@ -19,7 +19,7 @@ n_layer = 6
 dropout = 0.2
 
 model = gpt.MinGPT(vocab_size, block_size, n_embd, n_head, n_layer, dropout, DEVICE).to(DEVICE)
-model.load_state_dict(torch.load("./data/state_dict_model.pt"), strict=True)
+model.load_state_dict(torch.load("./data/state_dict_10p8_model.pt"), strict=True)
 model.eval()
 
 # generate from the model
