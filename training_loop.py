@@ -1,4 +1,5 @@
 import gpt
+import universal_transformer
 import data_loader
 import torch
 from torch import nn
@@ -19,7 +20,15 @@ n_head = 6
 n_layer = 6
 dropout = 0.2
 
-model = gpt.MinGPT(vocab_size, block_size, n_embd, n_head, n_layer, dropout, DEVICE).to(DEVICE)
+#model = gpt.MinGPT(vocab_size, block_size, n_embd, n_head, n_layer, dropout, DEVICE).to(DEVICE)
+model = universal_transformer.UT(vocab_size,
+                                 block_size,
+                                 n_embd,
+                                 n_head,
+                                 dropout,
+                                 threshold=0.95,
+                                 max_steps=10,
+                                 device=DEVICE).to(DEVICE)
 
 loss_fn = nn.CrossEntropyLoss()
 optimizer = torch.optim.AdamW(model.parameters(), lr=3e-4)
@@ -43,10 +52,10 @@ def estimate_loss(eval_iters, batch_size, block_size, device):
     model.train()
     return out
 
-epochs = 5000
+epochs = 500
 batch_size = 64
-eval_interval = 500
-eval_iters = 100
+eval_interval = 50
+eval_iters = 10
 
 model.train()
 

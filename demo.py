@@ -1,4 +1,5 @@
 import gpt
+import universal_transformer
 from data_loader import decode
 import torch
 from torch import nn
@@ -18,8 +19,19 @@ n_head = 6
 n_layer = 6
 dropout = 0.2
 
-model = gpt.MinGPT(vocab_size, block_size, n_embd, n_head, n_layer, dropout, DEVICE).to(DEVICE)
-model.load_state_dict(torch.load("./data/state_dict_10p8_model.pt"), strict=True)
+#model = gpt.MinGPT(vocab_size, block_size, n_embd, n_head, n_layer, dropout, DEVICE).to(DEVICE)
+#model.load_state_dict(torch.load("./data/state_dict_10p8_model.pt"), strict=True)
+
+model = universal_transformer.UT(vocab_size,
+                                 block_size,
+                                 n_embd,
+                                 n_head,
+                                 dropout,
+                                 threshold=0.95,
+                                 max_steps=10,
+                                 device=DEVICE).to(DEVICE)
+model.load_state_dict(torch.load("./data/state_dict_model.pt"), strict=True)
+
 model.eval()
 
 # generate from the model
