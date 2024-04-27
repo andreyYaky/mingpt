@@ -16,7 +16,7 @@ class MinGPT(nn.Module):
         self.ln_f = nn.LayerNorm(n_embd)
         self.lm_head = nn.Linear(n_embd, vocab_size)
 
-    def forward(self, x):
+    def forward(self, x, targets=None):
         B, T = x.shape
 
         tok_emb = self.token_embedding_table(x) # (B, T, C)
@@ -24,8 +24,17 @@ class MinGPT(nn.Module):
         x = tok_emb + pos_emb
         x = self.blocks(x)
         x = self.ln_f(x)
-        logits = self.lm_head(x)
-        return logits
+
+        if targets is not None:
+            # if we are given some desired targets also calculate the loss
+            logits = self.lm_head(x)
+            loss = F.cross_entropy(logits.view(-1, logits.size(-1)), targets.view(-1), ignore_index=-1)
+        else:
+            # inference-time mini-optimization: only forward the lm_head on the very last position
+            logits = self.lm_head(x[:, [-1], :]) # note: using list [-1] to preserve the time dim
+            loss = None
+
+        return logits, loss
     
     @torch.no_grad()
     def generate(self, idx, max_new_tokens: int):
@@ -36,7 +45,7 @@ class MinGPT(nn.Module):
             idx_cond = idx[:, -self.block_size:]
             # get predictions
             # (B, block_size, C)
-            pred = self(idx_cond)
+            pred, _ = self(idx_cond)
             # focus on last time step
             # (B, C)
             logits = pred[:, -1,:]

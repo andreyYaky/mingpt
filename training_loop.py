@@ -20,17 +20,22 @@ n_head = 6
 n_layer = 6
 dropout = 0.2
 
-#model = gpt.MinGPT(vocab_size, block_size, n_embd, n_head, n_layer, dropout, DEVICE).to(DEVICE)
-model = universal_transformer.UT(vocab_size,
+model = gpt.MinGPT(vocab_size,
+                   block_size,
+                   n_embd,
+                   n_head,
+                   n_layer,
+                   dropout,
+                   DEVICE).to(DEVICE)
+'''model = universal_transformer.UT(vocab_size,
                                  block_size,
                                  n_embd,
                                  n_head,
                                  dropout,
                                  threshold=0.95,
                                  max_steps=10,
-                                 device=DEVICE).to(DEVICE)
+                                 device=DEVICE).to(DEVICE)'''
 
-loss_fn = nn.CrossEntropyLoss()
 optimizer = torch.optim.AdamW(model.parameters(), lr=3e-4)
 
 @torch.no_grad()
@@ -41,13 +46,9 @@ def estimate_loss(eval_iters, batch_size, block_size, device):
         losses = torch.zeros(eval_iters)
         for k in range(eval_iters):
             inputs, targets = data_loader.get_batch(split, batch_size, block_size, device)
-            predictions = model(inputs)
-            
-            B, T, C = predictions.shape
-            predictions = predictions.view(B*T, C)
-            targets = targets.view(B*T)
+            predictions, loss = model(inputs, targets)
 
-            losses[k] = loss_fn(predictions, targets)
+            losses[k] = loss
         out[split] = losses.mean()
     model.train()
     return out
@@ -63,14 +64,8 @@ for n in range(epochs):
     # inputs: (B, L)
     # targets: (B, L) inputs shifted left 1
     inputs, targets = data_loader.get_batch('train', batch_size, block_size, DEVICE)
-    predictions = model(inputs)
+    predictions, loss = model(inputs, targets)
 
-    B, T, C = predictions.shape
-    predictions = predictions.view(B*T, C)
-    targets = targets.view(B*T)
-
-    loss = loss_fn(predictions, targets)
-    
     # backward
     optimizer.zero_grad()
     loss.backward()

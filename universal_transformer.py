@@ -66,7 +66,7 @@ class UT(nn.Module):
             # remainders when halted this step
             update_weights = p * still_running + remainders * new_halted
             # (B, T) -> (B, T, n_embd)
-            update_weights = update_weights.unsqueeze(-1).expand(-1,-1,384)
+            update_weights = update_weights.unsqueeze(-1).expand(-1,-1,x.shape[2])
 
             # apply transformation from blocks
             transformed_x = x + pos_emb
