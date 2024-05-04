@@ -33,7 +33,7 @@ model = universal_transformer.UT(vocab_size,
                                  n_embd,
                                  n_head,
                                  dropout,
-                                 threshold=0.95,
+                                 threshold=0.99,
                                  max_steps=10,
                                  device=DEVICE).to(DEVICE)
 model.load_state_dict(torch.load("./data/state_dict_model.pt"), strict=True)

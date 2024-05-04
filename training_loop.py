@@ -32,7 +32,7 @@ model = universal_transformer.UT(vocab_size,
                                  n_embd,
                                  n_head,
                                  dropout,
-                                 threshold=0.95,
+                                 threshold=0.99,
                                  max_steps=10,
                                  device=DEVICE).to(DEVICE)
 
@@ -59,8 +59,8 @@ def estimate_loss(eval_iters, batch_size, block_size, device):
 
 epochs = 5000
 batch_size = 64
-eval_interval = 50
-eval_iters = 10
+eval_interval = 500
+eval_iters = 100
 
 model.train()
 

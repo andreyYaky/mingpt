@@ -88,14 +88,14 @@ class UT(nn.Module):
             loss = F.cross_entropy(logits.view(-1, logits.size(-1)), targets.view(-1), ignore_index=-1)
             # add ACT loss
             # sets the balance between computation time and error
-            act_loss_weight = 0.1
-            loss += act_loss_weight * torch.mean(n_updates + remainders)
+            act_loss_weight = 0.001
+            loss += act_loss_weight * torch.sum(n_updates + remainders)
         else:
             # inference-time mini-optimization: only forward the lm_head on the very last position
             logits = self.lm_head(x[:, [-1], :]) # note: using list [-1] to preserve the time dim
             loss = None
 
-        return logits, loss, torch.mean(n_updates + remainders)
+        return logits, loss, torch.sum(n_updates + remainders)
     
     @torch.no_grad()
     def generate(self, idx, max_new_tokens: int):
