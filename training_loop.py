@@ -13,25 +13,21 @@ elif (torch.has_mps or torch.backends.mps.is_available()):
     DEVICE = "mps"
 print(f"Using device {DEVICE}")
 
-vocab_size = 65
 block_size = 256
-n_embd = 384
-n_head = 6
-n_layer = 6
-dropout = 0.2
 
-'''model = gpt.MinGPT(vocab_size,
-                   block_size,
-                   n_embd,
-                   n_head,
-                   n_layer,
-                   dropout,
-                   DEVICE).to(DEVICE)'''
-model = universal_transformer.UT(vocab_size,
-                                 block_size,
-                                 n_embd,
-                                 n_head,
-                                 dropout,
+'''model = gpt.MinGPT(vocab_size=65,
+                   block_size=256,
+                   n_embd=384,
+                   n_head=6,
+                   n_layer=6,
+                   dropout=0.2,
+                   device=DEVICE).to(DEVICE)'''
+
+model = universal_transformer.UT(vocab_size=65,
+                                 block_size=256,
+                                 n_embd=384,
+                                 n_head=6,
+                                 dropout=0.2,
                                  threshold=0.99,
                                  max_steps=10,
                                  device=DEVICE).to(DEVICE)
