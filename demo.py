@@ -19,8 +19,8 @@ print(f"Using device {DEVICE}")
                    n_head=6,
                    n_layer=6,
                    dropout=0.2,
-                   device=DEVICE).to(DEVICE)'''
-#model.load_state_dict(torch.load("./data/state_dict_10p8_model.pt"), strict=True)
+                   device=DEVICE).to(DEVICE)
+model.load_state_dict(torch.load("./data/state_dict_10p8_model.pt"), strict=True)'''
 
 '''model = universal_transformer.UT(vocab_size=65,
                                  block_size=256,
@@ -29,21 +29,24 @@ print(f"Using device {DEVICE}")
                                  dropout=0.2,
                                  threshold=0.99,
                                  max_steps=10,
-                                 device=DEVICE).to(DEVICE)'''
-#model.load_state_dict(torch.load("./data/state_dict_UTmodel.pt"), strict=True)
+                                 device=DEVICE).to(DEVICE)
+model.load_state_dict(torch.load("./data/state_dict_UTmodel.pt"), strict=True)'''
 
 model = multiscale_transformer.MultiscaleDecoder(vocab_size=65,
                           block_size=256,
                           patch_size=4,
-                          n_embd=384,
-                          n_head=2,#6,
-                          n_layer=2,#6,
-                          dropout=0.2,
+                          d_global=384,
+                          n_head_global=6,
+                          n_layer_global=2,#6,
+                          d_local=128,#384,
+                          n_head_local=2,#6,
+                          n_layer_local=2,#6,
+                          dropout=0.1,
                           device=DEVICE).to(DEVICE)
 model.load_state_dict(torch.load("./data/state_dict_model.pt"), strict=True)
-model.eval()
 
 # generate from the model
+model.eval()
 #context = torch.zeros((1, 1), dtype=torch.long, device=DEVICE)
 context = torch.zeros((1, 4), dtype=torch.long, device=DEVICE)
 out = model.generate(context, 1000)[0].tolist()

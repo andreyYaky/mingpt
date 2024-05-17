@@ -36,10 +36,13 @@ block_size = 256
 model = multiscale_transformer.MultiscaleDecoder(vocab_size=65,
                           block_size=256,
                           patch_size=4,
-                          n_embd=384,
-                          n_head=2,#6,
-                          n_layer=2,#6,
-                          dropout=0.2,
+                          d_global=384,
+                          n_head_global=6,
+                          n_layer_global=2,#6,
+                          d_local=128,#384,
+                          n_head_local=2,#6,
+                          n_layer_local=2,#6,
+                          dropout=0.1,
                           device=DEVICE).to(DEVICE)
 
 optimizer = torch.optim.AdamW(model.parameters(), lr=3e-4)
@@ -50,7 +53,6 @@ def estimate_loss(eval_iters, batch_size, block_size, device):
     model.eval()
     for split in ['train', 'val']:
         losses = torch.zeros(eval_iters)
-        ponder_costs = torch.zeros(eval_iters)
         for k in range(eval_iters):
             inputs, targets = data_loader.get_batch(split, batch_size, block_size, device)
             predictions, loss = model(inputs, targets)
@@ -60,10 +62,10 @@ def estimate_loss(eval_iters, batch_size, block_size, device):
     model.train()
     return out
 
-epochs = 5000
+epochs = 1500#5000
 batch_size = 64
-eval_interval = 500
-eval_iters = 100
+eval_interval = 50#0
+eval_iters = 10#0
 
 model.train()
 

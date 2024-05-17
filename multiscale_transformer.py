@@ -35,37 +35,52 @@ class DecoderTransformer(nn.Module):
 # https://arxiv.org/pdf/2305.07185
 class MultiscaleDecoder(nn.Module):
 
-    def __init__(self, vocab_size, block_size, patch_size, n_embd, n_head, n_layer, dropout, device):
+    def __init__(self,
+                 vocab_size,
+                 block_size,
+                 patch_size,
+                 d_global,
+                 n_head_global,
+                 n_layer_global,
+                 d_local,
+                 n_head_local,
+                 n_layer_local,
+                 dropout,
+                 device):
         super().__init__()
         self.block_size = block_size
         self.patch_size = patch_size
         self.device = device
 
-        self.d_global = n_embd
-        self.d_local = n_embd
+        self.d_global = d_global
+        self.n_head_global = n_head_global
+        self.n_layer_global = n_layer_global
+
+        self.d_local = d_local
+        self.n_head_local = n_head_local
+        self.n_layer_local = n_layer_local
 
         # TODO: learned padding embedding
         self.pad = 0
-
-        # TODO: patch embedder
-        # maps byte sequence of length T to patch sequence of length T/P
 
         # global model across patches
         self.global_model = DecoderTransformer(vocab_size=vocab_size,
                                                block_size=block_size,
                                                patch_size=patch_size, # dim is P * D_G
-                                               n_embd=self.d_global,
-                                               n_head=n_head,
-                                               n_layer=n_layer,
+                                               n_embd=d_global,
+                                               n_head=n_head_global,
+                                               n_layer=n_layer_global,
                                                dropout=dropout,
                                                device=device)
+        # linear projection from d_global to d_local
+        self.gl_projection = nn.Linear(self.d_global, self.d_local)
         # local model within patches
         self.local_model = DecoderTransformer(vocab_size=vocab_size,
-                                              block_size=block_size,
+                                              block_size=patch_size,
                                               patch_size=1, # dim is just D_L
-                                              n_embd=self.d_local,
-                                              n_head=n_head,
-                                              n_layer=n_layer,
+                                              n_embd=d_local,
+                                              n_head=n_head_local,
+                                              n_layer=n_layer_local,
                                               dropout=dropout,
                                               device=device)
         # lm head after local model
@@ -88,6 +103,7 @@ class MultiscaleDecoder(nn.Module):
         padding_local = bytes_input.new_empty((bytes_input.shape[0], 1)).fill_(self.pad)
         bytes_local = torch.cat((padding_local, bytes_input[:, :-1]), -1)
 
+        return bytes_global, bytes_input
         return bytes_global, bytes_local
 
     def forward(self, x: torch.Tensor, targets=None):
@@ -109,13 +125,12 @@ class MultiscaleDecoder(nn.Module):
         global_output_reshaped = global_output.view((b * t, p, e))
         #print(f"global_output_reshaped.shape: {global_output_reshaped.shape}")
 
-        # TODO: w_GL projection matrix from D_G to D_L
-        #local_in = wGL(global_output_reshaped) + local_bytes_embedded
-
         local_bytes_embedded = self.local_model.embed(bytes_local)
         #print(f"local_bytes_embedded.shape: {local_bytes_embedded.shape}")
         # add global model output to local embeddings
-        local_in = local_bytes_embedded + global_output_reshaped
+        # linear projection from d_global to d_local
+        e = self.d_local
+        local_in = self.gl_projection(global_output_reshaped) + local_bytes_embedded
         #print(f"local_in.shape: {local_in.shape}")
         local_output = self.local_model(local_in)
         #print(f"local_output.shape: {local_output.shape}")
