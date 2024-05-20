@@ -37,17 +37,16 @@ model = multiscale_transformer.MultiscaleDecoder(vocab_size=65,
                           patch_size=4,
                           d_global=384,
                           n_head_global=6,
-                          n_layer_global=2,#6,
-                          d_local=128,#384,
-                          n_head_local=2,#6,
-                          n_layer_local=2,#6,
+                          n_layer_global=6,
+                          d_local=384,
+                          n_head_local=6,
+                          n_layer_local=6,
                           dropout=0.1,
                           device=DEVICE).to(DEVICE)
 model.load_state_dict(torch.load("./data/state_dict_model.pt"), strict=True)
 
 # generate from the model
 model.eval()
-#context = torch.zeros((1, 1), dtype=torch.long, device=DEVICE)
-context = torch.zeros((1, 4), dtype=torch.long, device=DEVICE)
+context = torch.zeros((1, 1), dtype=torch.long, device=DEVICE)
 out = model.generate(context, 1000)[0].tolist()
 print(decode(out))

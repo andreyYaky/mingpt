@@ -38,10 +38,10 @@ model = multiscale_transformer.MultiscaleDecoder(vocab_size=65,
                           patch_size=4,
                           d_global=384,
                           n_head_global=6,
-                          n_layer_global=2,#6,
-                          d_local=128,#384,
-                          n_head_local=2,#6,
-                          n_layer_local=2,#6,
+                          n_layer_global=6,
+                          d_local=384,
+                          n_head_local=6,
+                          n_layer_local=6,
                           dropout=0.1,
                           device=DEVICE).to(DEVICE)
 
@@ -62,7 +62,7 @@ def estimate_loss(eval_iters, batch_size, block_size, device):
     model.train()
     return out
 
-epochs = 1500#5000
+epochs = 1000#5000
 batch_size = 64
 eval_interval = 50#0
 eval_iters = 10#0
