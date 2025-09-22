@@ -4,8 +4,6 @@ import torch
 import torch.nn.functional as F
 from torch import nn
 
-from attention import CausalSelfAttentionBlock
-
 @dataclass
 class ModelArgs:
     dim: int = 256
@@ -16,6 +14,36 @@ class ModelArgs:
 
     max_seq_len: int = 256
 
+class TransformerBlock(nn.Module):
+
+    def __init__(self, layer_id: int, args: ModelArgs):
+        super().__init__()
+        self.layer_id = layer_id
+        
+        self.attention_norm = nn.LayerNorm(args.dim, args.norm_eps)
+        self.self_attention = nn.MultiheadAttention(args.dim, args.n_heads, batch_first=True)
+
+        self.ffn_norm = nn.LayerNorm(args.dim, args.norm_eps)
+        self.feed_forward = nn.Sequential(
+            nn.Linear(args.dim, 4 * args.dim),
+            nn.ReLU(),
+            nn.Linear(4 * args.dim, args.dim),
+        )
+    
+    def forward(self, x):
+        residue = x
+
+        x = self.attention_norm(x)
+        causal_mask = nn.Transformer.generate_square_subsequent_mask(sz=x.shape[1])
+        x = self.self_attention(x, x, x, need_weights=False, attn_mask=causal_mask, is_causal=True)[0]
+        x += residue
+
+        residue = x
+
+        x = self.ffn_norm(x)
+        x = self.feed_forward(x)
+        x += residue
+        return x
 
 class MinGPT(nn.Module):
 
@@ -28,7 +56,7 @@ class MinGPT(nn.Module):
 
         self.layers = torch.nn.ModuleList()
         for layer_id in range(params.n_layers):
-            self.layers.append(CausalSelfAttentionBlock(params.dim, params.n_heads, dropout=0.2))
+            self.layers.append(TransformerBlock(layer_id, params))
 
         self.ln_f = nn.LayerNorm(params.dim, eps=params.norm_eps)
         self.lm_head = nn.Linear(params.dim, params.vocab_size)
