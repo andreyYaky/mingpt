@@ -1,7 +1,7 @@
 import torch
 
 from data_loader import decode
-from gpt import ModelArgs, MinGPT
+from model import ModelArgs, Transformer
 
 DEVICE = "cpu"
 
@@ -12,7 +12,7 @@ elif (torch.backends.mps.is_available()):
 print(f"Using device {DEVICE}")
 
 params = ModelArgs()
-model = MinGPT(params).to(DEVICE)
+model = Transformer(params).to(DEVICE)
 model.load_state_dict(torch.load("./data/state_dict_model.pt"), strict=True)
 print(model)
 

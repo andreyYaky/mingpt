@@ -3,7 +3,7 @@ from tqdm import tqdm
 import torch
 
 import data_loader
-from gpt import ModelArgs, MinGPT
+from model import ModelArgs, Transformer
 
 DEVICE = "cpu"
 
@@ -16,7 +16,7 @@ print(f"Using device {DEVICE}")
 block_size = 256
 
 params = ModelArgs()
-model = MinGPT(params).to(DEVICE)
+model = Transformer(params).to(DEVICE)
 print(model)
 
 optimizer = torch.optim.AdamW(model.parameters(), lr=3e-4)

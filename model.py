@@ -98,7 +98,7 @@ class TransformerBlock(nn.Module):
         x += residue
         return x
 
-class MinGPT(nn.Module):
+class Transformer(nn.Module):
 
     def __init__(self, params: ModelArgs):
         super().__init__()
