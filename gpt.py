@@ -1,5 +1,8 @@
+import math
 from dataclasses import dataclass
+from typing import Optional
 
+import einops
 import torch
 import torch.nn.functional as F
 from torch import nn
@@ -14,6 +17,53 @@ class ModelArgs:
 
     max_seq_len: int = 256
 
+class Attention(nn.Module):
+
+    def __init__(self, args: ModelArgs):
+        super().__init__()
+        self.head_dim = args.dim // args.n_heads
+
+        self.wq = nn.Linear(
+            args.dim,
+            args.n_heads * self.head_dim,
+            bias=False
+        )
+        self.wk = nn.Linear(
+            args.dim,
+            args.n_heads * self.head_dim,
+            bias=False
+        )
+        self.wv = nn.Linear(
+            args.dim,
+            args.n_heads * self.head_dim,
+            bias=False
+        )
+        self.wo = nn.Linear(
+            args.n_heads * self.head_dim,
+            args.dim,
+            bias=False
+        )
+
+    def forward(
+        self,
+        x: torch.Tensor,
+        mask: Optional[torch.Tensor]
+    ):
+
+        xq, xk, xv = self.wq(x), self.wk(x), self.wv(x)
+        xq = einops.rearrange(xq, "b t (n_heads h_dim) -> b n_heads t h_dim", h_dim=self.head_dim)
+        xk = einops.rearrange(xk, "b t (n_heads h_dim) -> b n_heads t h_dim", h_dim=self.head_dim)
+        xv = einops.rearrange(xv, "b t (n_heads h_dim) -> b n_heads t h_dim", h_dim=self.head_dim)
+
+        scores = xq @ einops.rearrange(xk, "b n_heads t h_dim -> b n_heads h_dim t") / math.sqrt(self.head_dim)
+        if mask is not None:
+            scores = scores + mask
+        scores = F.softmax(scores, dim=-1)
+
+        out = scores @ xv
+        out = einops.rearrange(out, "b n_heads t h_dim -> b t (n_heads h_dim)")
+        return self.wo(out)
+
 class TransformerBlock(nn.Module):
 
     def __init__(self, layer_id: int, args: ModelArgs):
@@ -21,7 +71,7 @@ class TransformerBlock(nn.Module):
         self.layer_id = layer_id
         
         self.attention_norm = nn.LayerNorm(args.dim, args.norm_eps)
-        self.self_attention = nn.MultiheadAttention(args.dim, args.n_heads, batch_first=True)
+        self.self_attention = Attention(args)
 
         self.ffn_norm = nn.LayerNorm(args.dim, args.norm_eps)
         self.feed_forward = nn.Sequential(
@@ -30,12 +80,15 @@ class TransformerBlock(nn.Module):
             nn.Linear(4 * args.dim, args.dim),
         )
     
-    def forward(self, x):
+    def forward(
+        self,
+        x: torch.Tensor,
+        mask: Optional[torch.Tensor]
+    ):
         residue = x
 
         x = self.attention_norm(x)
-        causal_mask = nn.Transformer.generate_square_subsequent_mask(sz=x.shape[1])
-        x = self.self_attention(x, x, x, need_weights=False, attn_mask=causal_mask, is_causal=True)[0]
+        x = self.self_attention(x, mask)
         x += residue
 
         residue = x
@@ -67,8 +120,12 @@ class MinGPT(nn.Module):
         tok_emb = self.token_embedding_table(x) # (B, T, C)
         pos_emb = self.position_embedding_table(torch.arange(T, device=x.device)) # (T, C)
         x = tok_emb + pos_emb
+
+        subsequent_mask = torch.full([T, T], fill_value=float("-inf"), device=x.device)
+        subsequent_mask = torch.triu(subsequent_mask, diagonal=1)
+
         for layer in self.layers:
-            x = layer(x)
+            x = layer(x, subsequent_mask)
         x = self.ln_f(x)
 
         if targets is not None:
