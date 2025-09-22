@@ -1,28 +1,46 @@
-from attention import CausalSelfAttentionBlock
+from dataclasses import dataclass
+
 import torch
+import torch.nn.functional as F
 from torch import nn
-from torch.nn import functional as F
+
+from attention import CausalSelfAttentionBlock
+
+@dataclass
+class ModelArgs:
+    dim: int = 256
+    n_layers: int = 4
+    n_heads: int = 4
+    vocab_size: int = 65#-1  # should be defined later by tokenizer
+    norm_eps: float = 1e-5
+
+    max_seq_len: int = 256
+
 
 class MinGPT(nn.Module):
 
-    def __init__(self, vocab_size, block_size, n_embd, n_head, n_layer, dropout, device):
+    def __init__(self, params: ModelArgs):
         super().__init__()
-        self.block_size = block_size
-        self.device = device
+        self.block_size = params.max_seq_len
 
-        self.token_embedding_table = nn.Embedding(vocab_size, n_embd)
-        self.position_embedding_table = nn.Embedding(block_size, n_embd)
-        self.blocks = nn.Sequential(*[CausalSelfAttentionBlock(block_size, n_embd, n_head, dropout) for _ in range(n_layer)])
-        self.ln_f = nn.LayerNorm(n_embd)
-        self.lm_head = nn.Linear(n_embd, vocab_size)
+        self.token_embedding_table = nn.Embedding(params.vocab_size, params.dim)
+        self.position_embedding_table = nn.Embedding(params.max_seq_len, params.dim)
+
+        self.layers = torch.nn.ModuleList()
+        for layer_id in range(params.n_layers):
+            self.layers.append(CausalSelfAttentionBlock(params.dim, params.n_heads, dropout=0.2))
+
+        self.ln_f = nn.LayerNorm(params.dim, eps=params.norm_eps)
+        self.lm_head = nn.Linear(params.dim, params.vocab_size)
 
     def forward(self, x, targets=None):
         B, T = x.shape
 
         tok_emb = self.token_embedding_table(x) # (B, T, C)
-        pos_emb = self.position_embedding_table(torch.arange(T, device=self.device)) # (T, C)
+        pos_emb = self.position_embedding_table(torch.arange(T, device=x.device)) # (T, C)
         x = tok_emb + pos_emb
-        x = self.blocks(x)
+        for layer in self.layers:
+            x = layer(x)
         x = self.ln_f(x)
 
         if targets is not None:
@@ -51,7 +69,7 @@ class MinGPT(nn.Module):
             logits = pred[:, -1,:]
             # softmax over C to get probability distribution
             # (B, C) still
-            probs = nn.functional.softmax(logits, dim=-1)
+            probs = F.softmax(logits, dim=-1)
             # sample from distribution
             # (B, 1)
             idx_next = torch.multinomial(probs, num_samples=1)
