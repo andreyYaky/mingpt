@@ -90,6 +90,51 @@ class Attention(nn.Module):
         return self.wo(out)
 
 
+class FeedForward(nn.Module):
+
+    def __init__(
+            self,
+            dim: int,
+            hidden_dim: int
+        ):
+        """
+        Initialize a FeedForward module.
+
+        Args:
+            args (ModelArgs): Model configuration parameters.
+
+        Attributes:
+            w1 (nn.Linear): Linear transformation for first layer.
+            w2 (nn.Linear): Linear transformation for second layer.
+
+        """
+        super().__init__()
+
+        self.w1 = nn.Linear(
+            dim,
+            hidden_dim,
+            bias=False
+        )
+        self.w2 = nn.Linear(
+            hidden_dim,
+            dim,
+            bias=False
+        )
+
+    def forward(self, x: torch.Tensor):
+        """
+        Forward pass of the feedforward module.
+
+        Args:
+            x (torch.Tensor): Input tensor.
+
+        Returns:
+            torch.Tensor: Output tensor after feedforward.
+
+        """
+        return self.w2(F.relu(self.w1(x)))
+
+
 class TransformerBlock(nn.Module):
 
     def __init__(self, layer_id: int, args: ModelArgs):
@@ -105,7 +150,7 @@ class TransformerBlock(nn.Module):
             attention_norm (nn.LayerNorm): Layer normalization before attention.
             self_attention (Attention): Attention module.
             ffn_norm (nn.LayerNorm): Layer normalization before feed forward.
-            feed_forward (nn.Sequential): FeedForward module.
+            feed_forward (FeedForward): FeedForward module.
 
         """
         super().__init__()
@@ -115,11 +160,7 @@ class TransformerBlock(nn.Module):
         self.self_attention = Attention(args)
 
         self.ffn_norm = nn.LayerNorm(args.dim, args.norm_eps)
-        self.feed_forward = nn.Sequential(
-            nn.Linear(args.dim, 4 * args.dim),
-            nn.ReLU(),
-            nn.Linear(4 * args.dim, args.dim),
-        )
+        self.feed_forward = FeedForward(args.dim, 4 * args.dim)
     
     def forward(
         self,
