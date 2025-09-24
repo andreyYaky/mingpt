@@ -105,12 +105,22 @@ class FeedForward(nn.Module):
 
         Attributes:
             w1 (nn.Linear): Linear transformation for first layer.
+            w_gate (nn.Linear): Linear transformation for gate layer.
             w2 (nn.Linear): Linear transformation for second layer.
 
         """
         super().__init__()
+        # reduce hidden dimension by a factor of 2/3 to keep parameter count 
+        # and computation amount consistent with vanilla transformer
+        hidden_dim = int(2 * hidden_dim / 3)
 
+        # SwiGLU (Swish Gated Linear Unit)
         self.w1 = nn.Linear(
+            dim,
+            hidden_dim,
+            bias=False
+        )
+        self.w_gate = nn.Linear(
             dim,
             hidden_dim,
             bias=False
@@ -132,7 +142,7 @@ class FeedForward(nn.Module):
             torch.Tensor: Output tensor after feedforward.
 
         """
-        return self.w2(F.relu(self.w1(x)))
+        return self.w2(F.silu(self.w_gate(x)) * self.w1(x))
 
 
 class TransformerBlock(nn.Module):
