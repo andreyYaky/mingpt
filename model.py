@@ -1,6 +1,6 @@
 import math
 from dataclasses import dataclass
-from typing import Optional
+from typing import Optional, Tuple
 
 import einops
 import torch
@@ -16,6 +16,84 @@ class ModelArgs:
     norm_eps: float = 1e-5
 
     max_seq_len: int = 256
+
+
+def precompute_freqs_cis(dim: int, end: int, theta: float = 10000.0):
+    """
+    Precompute the frequency tensor for complex exponentials (cis) with given dimensions.
+
+    This function calculates a frequency tensor with complex exponentials using the given dimension 'dim'
+    and the end index 'end'. The 'theta' parameter scales the frequencies.
+    The returned tensor contains complex values in complex64 data type.
+
+    Args:
+        dim (int): Dimension of the frequency tensor.
+        end (int): End index for precomputing frequencies.
+        theta (float, optional): Scaling factor for frequency computation. Defaults to 10000.0.
+
+    Returns:
+        torch.Tensor: Precomputed frequency tensor with complex exponentials.
+    """
+    i = torch.arange(0, dim, 2)[: (dim // 2)].float()
+    freqs = 1.0 / (theta ** (i / dim))
+
+    t = torch.arange(end, device=freqs.device)
+    freqs = torch.outer(t, freqs).float()
+
+    freqs_cis = torch.polar(
+        abs=torch.ones_like(freqs),
+        angle=freqs
+    )
+    return freqs_cis
+
+
+def apply_rotary_emb(
+    xq: torch.Tensor,
+    xk: torch.Tensor,
+    freqs_cis: torch.Tensor
+) -> Tuple[torch.Tensor, torch.Tensor]:
+    """
+    Apply rotary embeddings to input tensors using the given frequency tensor.
+
+    This function applies rotary embeddings to the given query 'xq' and key 'xk' tensors using the provided
+    frequency tensor 'freqs_cis'. The input tensors are reshaped as complex numbers, and the frequency tensor
+    is reshaped for broadcasting compatibility. The resulting tensors contain rotary embeddings and are
+    returned as real tensors.
+
+    Args:
+        xq (torch.Tensor): Query tensor to apply rotary embeddings.
+        xk (torch.Tensor): Key tensor to apply rotary embeddings.
+        freqs_cis (torch.Tensor): Precomputed frequency tensor for complex exponentials.
+
+    Returns:
+        Tuple[torch.Tensor, torch.Tensor]: Tuple of modified query tensor and key tensor with rotary embeddings.
+    """
+    xq_ = torch.view_as_complex(
+        einops.rearrange(xq, "b n_heads t (h_dim1 h_dim2) -> b n_heads t h_dim1 h_dim2", h_dim2=2)
+    )
+    xk_ = torch.view_as_complex(
+        einops.rearrange(xk, "b n_heads t (h_dim1 h_dim2) -> b n_heads t h_dim1 h_dim2", h_dim2=2)
+    )
+
+    # reshape freqs_cis for broadcast
+    _bsz, n_heads, seqlen, h_dim1 = xq_.shape
+    freqs_cis = einops.repeat(
+        freqs_cis, "t h_dim1 -> b n_heads t h_dim1",
+        b=_bsz, n_heads=n_heads
+    )
+    xq_ = xq_ * freqs_cis
+    xk_ = xk_ * freqs_cis
+
+    # reshape as real tensors
+    xq_out = einops.rearrange(
+        torch.view_as_real(xq_ * freqs_cis),
+        "b n_heads t h_dim1 h_dim2 -> b n_heads t (h_dim1 h_dim2)"
+    )
+    xk_out = einops.rearrange(
+        torch.view_as_real(xq_ * freqs_cis),
+        "b n_heads t h_dim1 h_dim2 -> b n_heads t (h_dim1 h_dim2)"
+    )
+    return xq_out.type_as(xq), xk_out.type_as(xk)
 
 
 class Attention(nn.Module):
@@ -62,6 +140,7 @@ class Attention(nn.Module):
     def forward(
         self,
         x: torch.Tensor,
+        freqs_cis: torch.Tensor,
         mask: Optional[torch.Tensor]
     ):
         """
@@ -69,6 +148,7 @@ class Attention(nn.Module):
 
         Args:
             x (torch.Tensor): Input tensor.
+            freqs_cis (torch.Tensor): Precomputed cosine and sine frequencies.
             mask (torch.Tensor, optional): Attention mask tensor.
 
         Returns:
@@ -79,6 +159,8 @@ class Attention(nn.Module):
         xq = einops.rearrange(xq, "b t (n_heads h_dim) -> b n_heads t h_dim", h_dim=self.head_dim)
         xk = einops.rearrange(xk, "b t (n_heads h_dim) -> b n_heads t h_dim", h_dim=self.head_dim)
         xv = einops.rearrange(xv, "b t (n_heads h_dim) -> b n_heads t h_dim", h_dim=self.head_dim)
+
+        xq, xk = apply_rotary_emb(xq, xk, freqs_cis)
 
         scores = xq @ einops.rearrange(xk, "b n_heads t h_dim -> b n_heads h_dim t") / math.sqrt(self.head_dim)
         if mask is not None:
@@ -175,6 +257,7 @@ class TransformerBlock(nn.Module):
     def forward(
         self,
         x: torch.Tensor,
+        freqs_cis: torch.Tensor,
         mask: Optional[torch.Tensor]
     ):
         """
@@ -182,6 +265,7 @@ class TransformerBlock(nn.Module):
 
         Args:
             x (torch.Tensor): Input tensor.
+            freqs_cis (torch.Tensor): Precomputed cosine and sine frequencies.
             mask (torch.Tensor, optional): Attention mask tensor.
 
         Returns:
@@ -191,7 +275,7 @@ class TransformerBlock(nn.Module):
         residue = x
 
         x = self.attention_norm(x)
-        x = self.self_attention(x, mask)
+        x = self.self_attention(x, freqs_cis, mask)
         x += residue
 
         residue = x
@@ -216,10 +300,10 @@ class Transformer(nn.Module):
             vocab_size (int): Vocabulary size.
             n_layers (int): Number of layers in the model.
             token_embeddings (torch.nn.Embedding): Token embeddings.
-            position_embeddings (torch.nn.Embedding): Position embeddings.
             layers (torch.nn.ModuleList): List of Transformer blocks.
             ln_f (torch.nn.LayerNorm): Layer normalization before final output.
             lm_head (torch.nn.Linear): Linear layer for final output.
+            freqs_cis (torch.Tensor): Precomputed cosine and sine frequencies.
 
         """
         super().__init__()
@@ -227,7 +311,6 @@ class Transformer(nn.Module):
         self.block_size = params.max_seq_len
 
         self.token_embeddings = nn.Embedding(params.vocab_size, params.dim)
-        self.position_embeddings = nn.Embedding(params.max_seq_len, params.dim)
 
         self.layers = torch.nn.ModuleList()
         for layer_id in range(params.n_layers):
@@ -235,6 +318,11 @@ class Transformer(nn.Module):
 
         self.ln_f = nn.LayerNorm(params.dim, eps=params.norm_eps)
         self.lm_head = nn.Linear(params.dim, params.vocab_size)
+
+        self.freqs_cis = precompute_freqs_cis(
+            dim=params.dim // params.n_heads,
+            end=params.max_seq_len
+        )
 
     def forward(
         self,
@@ -252,17 +340,19 @@ class Transformer(nn.Module):
             torch.Tensor: Output logits after applying the Transformer model.
 
         """
-        B, T = tokens.shape
+        _bsz, seqlen = tokens.shape
 
-        tok_emb = self.token_embeddings(tokens) # (B, T, C)
-        pos_emb = self.position_embeddings(torch.arange(T, device=tokens.device)) # (T, C)
-        x = tok_emb + pos_emb
+        x = self.token_embeddings(tokens)
+        self.freqs_cis = self.freqs_cis.to(x.device)
+        freqs_cis = self.freqs_cis[: seqlen]
 
-        subsequent_mask = torch.full([T, T], fill_value=float("-inf"), device=x.device)
+        subsequent_mask = torch.full(
+            [seqlen, seqlen], fill_value=float("-inf"), device=x.device
+        )
         subsequent_mask = torch.triu(subsequent_mask, diagonal=1)
 
         for layer in self.layers:
-            x = layer(x, subsequent_mask)
+            x = layer(x, freqs_cis, subsequent_mask)
         x = self.ln_f(x)
 
         if targets is not None:
