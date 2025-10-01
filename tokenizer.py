@@ -2,10 +2,7 @@ from typing import List
 
 class CharwiseTokenizer():
 
-    def __init__(
-            self,
-            corpus: str
-        ):
+    def __init__(self, corpus: str):
         """
         Initialize a character-level tokenizer based on the training text corpus.
 

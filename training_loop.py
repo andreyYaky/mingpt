@@ -3,7 +3,7 @@ from tqdm import tqdm
 
 import torch
 
-from data_loader import Dataloader
+from dataloader import Dataloader
 from model import ModelArgs, Transformer
 from tokenizer import CharwiseTokenizer
 
