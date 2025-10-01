@@ -1,7 +1,6 @@
-import pickle
 import torch
 
-from model import ModelArgs, Transformer
+from gpt import GPT
 
 DEVICE = "cpu"
 
@@ -12,16 +11,11 @@ elif (torch.backends.mps.is_available()):
 print(f"Using device {DEVICE}")
 
 ckpt_dir = "./ckpt"
-params = ModelArgs()
-model = Transformer(params).to(DEVICE)
-model.load_state_dict(torch.load(f"{ckpt_dir}/state_dict_model.pt"), strict=True)
-print(model)
-
-with open(f"{ckpt_dir}/tokenizer.pkl", 'rb') as file:
-    tokenizer = pickle.load(file)
+gpt = GPT.build(ckpt_dir)
+print(gpt.model)
 
 # generate from the model
-model.eval()
+gpt.model.eval()
 context = torch.zeros((1, 1), dtype=torch.long, device=DEVICE)
-out = model.generate(context, 1000)[0].tolist()
-print(tokenizer.decode(out))
+out = gpt.model.generate(context, 1000)[0].tolist()
+print(gpt.tokenizer.decode(out))
