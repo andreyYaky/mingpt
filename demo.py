@@ -11,12 +11,13 @@ elif (torch.backends.mps.is_available()):
     DEVICE = "mps"
 print(f"Using device {DEVICE}")
 
+ckpt_dir = "./ckpt"
 params = ModelArgs()
 model = Transformer(params).to(DEVICE)
-model.load_state_dict(torch.load("./data/state_dict_model.pt"), strict=True)
+model.load_state_dict(torch.load(f"{ckpt_dir}/state_dict_model.pt"), strict=True)
 print(model)
 
-with open("./ckpt/tokenizer.pkl", 'rb') as file:
+with open(f"{ckpt_dir}/tokenizer.pkl", 'rb') as file:
     tokenizer = pickle.load(file)
 
 # generate from the model
