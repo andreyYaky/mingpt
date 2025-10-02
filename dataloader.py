@@ -7,11 +7,13 @@ from tokenizer import CharwiseTokenizer
 class Dataloader():
 
     def __init__(self, corpus: str, tokenizer: CharwiseTokenizer):
-        self.data = torch.tensor(tokenizer.encode(corpus), dtype=torch.long)
+        data = torch.tensor(tokenizer.encode(corpus), dtype=torch.long)
 
-        n = int(0.9 * len(self.data)) # first 90% will be train, rest val
-        self.train_data = self.data[:n]
-        self.val_data = self.data[n:]
+        n = int(0.9 * len(data)) # first 90% will be train, rest val
+        self.data = {
+            'train': data[:n],
+            'val': data[n:]
+        }
 
     def get_batch(
             self,
@@ -20,7 +22,7 @@ class Dataloader():
             block_size: int
     ):
         # generate a small batch of data of inputs x and targets y
-        data = self.train_data if split == 'train' else self.val_data
+        data = self.data[split]
 
         ix = torch.randint(len(data) - block_size, (batch_size,))
 

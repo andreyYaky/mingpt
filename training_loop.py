@@ -1,6 +1,8 @@
 import pickle
 from tqdm import tqdm
 
+import matplotlib.pyplot as plt
+import pandas as pd
 import torch
 
 from dataloader import Dataloader
@@ -49,6 +51,7 @@ block_size = params.max_seq_len
 eval_interval = 50
 eval_iters = 10
 
+loss_data = []
 model.train()
 
 for n in tqdm(range(epochs)):
@@ -62,13 +65,28 @@ for n in tqdm(range(epochs)):
     loss.backward()
     # update
     optimizer.step()
-    
+
     if n % eval_interval == 0 or n == epochs - 1:
         losses = estimate_loss(eval_iters, batch_size, block_size)
         tqdm.write(f"Step {n}: train loss {losses['train']:.4f}, val loss {losses['val']:.4f}")
+
+        loss_data.append([
+            (n + 1) * batch_size * block_size, # number of training tokens
+            losses['val'].item() # validation loss
+        ])
 
 # save model and tokenizer after training
 ckpt_dir = "./ckpt"
 torch.save(model.state_dict(), f"{ckpt_dir}/state_dict_model.pt")
 with open(f"{ckpt_dir}/tokenizer.pkl", 'wb') as f:
     pickle.dump(tokenizer, f)
+
+# save loss curve as csv and plot
+loss_df = pd.DataFrame(loss_data, columns=['Training Tokens', "Validation Loss"])
+loss_df.to_csv(f"{ckpt_dir}/loss_curve.csv", index=False)
+
+plt.plot(loss_df['Training Tokens'], loss_df['Validation Loss'])
+plt.title('Loss Curve')
+plt.xlabel('Training Tokens')
+plt.ylabel('Validation Loss')
+plt.savefig(f"{ckpt_dir}/loss_curve.png")
