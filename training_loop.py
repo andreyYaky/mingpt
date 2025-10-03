@@ -1,4 +1,3 @@
-import pickle
 from tqdm import tqdm
 from typing import Literal
 
@@ -9,6 +8,8 @@ import torch
 from dataloader import Dataloader
 from model import ModelArgs, Transformer
 from tokenizer import CharwiseTokenizer
+
+from gpt import GPT
 
 DEVICE = "cpu"
 
@@ -25,8 +26,10 @@ with open('./data/input.txt', 'r', encoding='utf-8') as f:
 tokenizer = CharwiseTokenizer(corpus)
 dataloader = Dataloader(corpus, tokenizer)
 
-params = ModelArgs()
-model = Transformer(params).to(DEVICE)
+model_args = ModelArgs(
+    vocab_size=tokenizer.vocab_size
+)
+model = Transformer(model_args).to(DEVICE)
 print(model)
 
 optimizer = torch.optim.AdamW(model.parameters(), lr=3e-4)
@@ -50,7 +53,7 @@ def estimate_loss(
 
 epochs = 1000
 batch_size = 64
-block_size = params.max_seq_len
+block_size = model_args.max_seq_len
 eval_interval = 50
 eval_iters = 10
 
@@ -81,9 +84,7 @@ for n in tqdm(range(epochs)):
 
 # save model and tokenizer after training
 ckpt_dir = "./ckpt"
-torch.save(model.state_dict(), f"{ckpt_dir}/state_dict_model.pt")
-with open(f"{ckpt_dir}/tokenizer.pkl", 'wb') as f:
-    pickle.dump(tokenizer, f)
+GPT(model, tokenizer).save(ckpt_dir)
 
 # save loss curve as csv and plot
 loss_df = pd.DataFrame(loss_data, columns=['Training Tokens', "Validation Loss"])

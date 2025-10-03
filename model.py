@@ -12,7 +12,7 @@ class ModelArgs:
     dim: int = 256
     n_layers: int = 4
     n_heads: int = 4
-    vocab_size: int = 65#-1  # should be defined later by tokenizer
+    vocab_size: int = -1 # defined later by tokenizer
     norm_eps: float = 1e-5
 
     max_seq_len: int = 256
