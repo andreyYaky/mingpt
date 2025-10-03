@@ -1,5 +1,6 @@
 import pickle
 from tqdm import tqdm
+from typing import Literal
 
 import matplotlib.pyplot as plt
 import pandas as pd
@@ -31,19 +32,21 @@ print(model)
 optimizer = torch.optim.AdamW(model.parameters(), lr=3e-4)
 
 @torch.no_grad()
-def estimate_loss(eval_iters, batch_size, block_size):
-    out = {}
+def estimate_loss(
+    split: Literal['train', 'val'],
+    eval_iters: int,
+    batch_size: int,
+    block_size: int
+):
     model.eval()
-    for split in ['train', 'val']:
-        losses = torch.zeros(eval_iters)
-        for k in range(eval_iters):
-            inputs, targets = dataloader.get_batch(split, batch_size, block_size)
-            preds, loss = model(inputs.to(DEVICE), targets.to(DEVICE))
+    losses = torch.zeros(eval_iters)
+    for k in range(eval_iters):
+        inputs, targets = dataloader.get_batch(split, batch_size, block_size)
+        _preds, loss = model(inputs.to(DEVICE), targets.to(DEVICE))
 
-            losses[k] = loss
-        out[split] = losses.mean()
+        losses[k] = loss
     model.train()
-    return out
+    return losses.mean()
 
 epochs = 1000
 batch_size = 64
@@ -67,12 +70,13 @@ for n in tqdm(range(epochs)):
     optimizer.step()
 
     if n % eval_interval == 0 or n == epochs - 1:
-        losses = estimate_loss(eval_iters, batch_size, block_size)
-        tqdm.write(f"Step {n}: train loss {losses['train']:.4f}, val loss {losses['val']:.4f}")
+        train_loss = estimate_loss('train', eval_iters, batch_size, block_size)
+        val_loss = estimate_loss('val', eval_iters, batch_size, block_size)
+        tqdm.write(f"Step {n}: train loss {train_loss:.4f}, val loss {val_loss:.4f}")
 
         loss_data.append([
             (n + 1) * batch_size * block_size, # number of training tokens
-            losses['val'].item() # validation loss
+            val_loss.item() # validation loss
         ])
 
 # save model and tokenizer after training
