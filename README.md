@@ -4,6 +4,7 @@ GPTs trained with shakespeare dataset. Includes: small 10.8M GPT mimicking Andre
 
 ### Implemented Techniques:
 - Multihead Attention
+- KV Caching
 - SwiGLU (Swish Gated Linear Unit) FeedForward
 - RoPE: Rotary Positional Embeddings
 

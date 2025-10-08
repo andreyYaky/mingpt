@@ -52,7 +52,7 @@ def estimate_loss(
     return losses.mean()
 
 epochs = 1000
-batch_size = 64
+batch_size = model_args.max_batch_size
 block_size = model_args.max_seq_len
 eval_interval = 50
 eval_iters = 10

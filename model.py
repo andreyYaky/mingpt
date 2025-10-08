@@ -15,6 +15,7 @@ class ModelArgs:
     vocab_size: int = -1 # defined later by tokenizer
     norm_eps: float = 1e-5
 
+    max_batch_size: int = 64
     max_seq_len: int = 256
 
 
@@ -76,10 +77,10 @@ def apply_rotary_emb(
     )
 
     # reshape freqs_cis for broadcast
-    _bsz, n_heads, seqlen, h_dim1 = xq_.shape
+    bsz, n_heads, _seq_len, _h_dim1 = xq_.shape
     freqs_cis = einops.repeat(
         freqs_cis, "t h_dim1 -> b n_heads t h_dim1",
-        b=_bsz, n_heads=n_heads
+        b=bsz, n_heads=n_heads
     )
     xq_ = xq_ * freqs_cis
     xk_ = xk_ * freqs_cis
@@ -111,6 +112,8 @@ class Attention(nn.Module):
             wk (nn.Linear): Linear transformation for keys.
             wv (nn.Linear): Linear transformation for values.
             wo (nn.Linear): Linear transformation for output.
+            cache_k (torch.Tensor): Cached keys for attention.
+            cache_v (torch.Tensor): Cached values for attention.
 
         """
         super().__init__()
@@ -137,9 +140,17 @@ class Attention(nn.Module):
             bias=False
         )
 
+        self.cache_k = torch.zeros(
+            (args.max_batch_size, args.n_heads, args.max_seq_len, self.head_dim)
+        )
+        self.cache_v = torch.zeros(
+            (args.max_batch_size, args.n_heads, args.max_seq_len, self.head_dim)
+        )
+
     def forward(
         self,
         x: torch.Tensor,
+        start_pos: int,
         freqs_cis: torch.Tensor,
         mask: Optional[torch.Tensor]
     ):
@@ -148,6 +159,7 @@ class Attention(nn.Module):
 
         Args:
             x (torch.Tensor): Input tensor.
+            start_pos (int): Starting position for caching.
             freqs_cis (torch.Tensor): Precomputed cosine and sine frequencies.
             mask (torch.Tensor, optional): Attention mask tensor.
 
@@ -162,12 +174,21 @@ class Attention(nn.Module):
 
         xq, xk = apply_rotary_emb(xq, xk, freqs_cis)
 
-        scores = xq @ einops.rearrange(xk, "b n_heads t h_dim -> b n_heads h_dim t") / math.sqrt(self.head_dim)
+        bsz, _n_heads, seq_len, _h_dim = xk.shape
+        self.cache_k, self.cache_v = self.cache_k.to(xk), self.cache_v.to(xv)
+        # update kv cache
+        self.cache_k[:bsz, :, start_pos:start_pos + seq_len, :] = xk
+        self.cache_v[:bsz, :, start_pos:start_pos + seq_len, :] = xv
+
+        keys = self.cache_k[:bsz, :, :start_pos + seq_len, :]
+        values = self.cache_v[:bsz, :, :start_pos + seq_len, :]
+
+        scores = xq @ einops.rearrange(keys, "b n_heads t h_dim -> b n_heads h_dim t") / math.sqrt(self.head_dim)
         if mask is not None:
             scores = scores + mask
         scores = F.softmax(scores, dim=-1)
 
-        out = scores @ xv
+        out = scores @ values
         out = einops.rearrange(out, "b n_heads t h_dim -> b t (n_heads h_dim)")
         return self.wo(out)
 
@@ -257,6 +278,7 @@ class TransformerBlock(nn.Module):
     def forward(
         self,
         x: torch.Tensor,
+        start_pos: int,
         freqs_cis: torch.Tensor,
         mask: Optional[torch.Tensor]
     ):
@@ -265,6 +287,7 @@ class TransformerBlock(nn.Module):
 
         Args:
             x (torch.Tensor): Input tensor.
+            start_pos (int): Starting position for caching.
             freqs_cis (torch.Tensor): Precomputed cosine and sine frequencies.
             mask (torch.Tensor, optional): Attention mask tensor.
 
@@ -272,18 +295,11 @@ class TransformerBlock(nn.Module):
             torch.Tensor: Output tensor after applying attention and feedforward layers.
 
         """
-        residue = x
-
-        x = self.attention_norm(x)
-        x = self.self_attention(x, freqs_cis, mask)
-        x += residue
-
-        residue = x
-
-        x = self.ffn_norm(x)
-        x = self.feed_forward(x)
-        x += residue
-        return x
+        h = x + self.self_attention(
+            self.attention_norm(x), start_pos, freqs_cis, mask
+        )
+        out = h + self.feed_forward(self.ffn_norm(h))
+        return out
 
 
 class Transformer(nn.Module):
@@ -308,7 +324,6 @@ class Transformer(nn.Module):
         """
         super().__init__()
         self.params = params
-        self.block_size = params.max_seq_len
 
         self.token_embeddings = nn.Embedding(params.vocab_size, params.dim)
 
@@ -327,7 +342,8 @@ class Transformer(nn.Module):
     def forward(
         self,
         tokens: torch.Tensor,
-        targets: Optional[torch.Tensor] = None
+        targets: Optional[torch.Tensor] = None,
+        start_pos: int = 0
     ):
         """
         Forward pass through the Transformer.
@@ -340,29 +356,28 @@ class Transformer(nn.Module):
             torch.Tensor: Output logits after applying the Transformer model.
 
         """
-        _bsz, seqlen = tokens.shape
+        _bsz, seq_len = tokens.shape
 
         x = self.token_embeddings(tokens)
         self.freqs_cis = self.freqs_cis.to(x.device)
-        freqs_cis = self.freqs_cis[: seqlen]
+        freqs_cis = self.freqs_cis[start_pos:start_pos + seq_len]
 
-        subsequent_mask = torch.full(
-            [seqlen, seqlen], fill_value=float("-inf"), device=x.device
-        )
-        subsequent_mask = torch.triu(subsequent_mask, diagonal=1)
+        subsequent_mask = None
+        if seq_len > 1:
+            subsequent_mask = torch.full(
+                [seq_len, start_pos + seq_len], fill_value=float("-inf"), device=x.device
+            )
+            subsequent_mask = torch.triu(subsequent_mask, diagonal=1)
 
         for layer in self.layers:
-            x = layer(x, freqs_cis, subsequent_mask)
+            x = layer(x, start_pos, freqs_cis, subsequent_mask)
         x = self.ln_f(x)
+        logits = self.lm_head(x)
 
+        loss = None
         if targets is not None:
             # calculate loss if targets are provided
-            logits = self.lm_head(x)
             loss = F.cross_entropy(logits.view(-1, logits.size(-1)), targets.view(-1), ignore_index=-1)
-        else:
-            # inference-time mini-optimization: only forward the lm_head on the very last position
-            logits = self.lm_head(x[:, [-1], :]) # note: using list [-1] to preserve the time dim
-            loss = None
 
         return logits, loss
 
@@ -384,17 +399,20 @@ class Transformer(nn.Module):
 
         """
         for _ in range(max_new_tokens):
-            # crop tokens to last block_size tokens
-            tokens_cond = tokens[:, -self.block_size:]
+            _bsz, current_pos = tokens.shape
 
             # get predicted logits from forward pass
-            pred, _ = self(tokens_cond)
+            logits, _ = self(tokens[:, -1:], start_pos=current_pos - 1)
             # focus on logits for next token
-            logits = pred[:, -1,:]
+            logits = logits[:, -1,:]
 
             # softmax to get probability distribution
             probs = F.softmax(logits, dim=-1)
             # sample from distribution and append next token
             next_token = torch.multinomial(probs, num_samples=1)
             tokens = torch.cat((tokens, next_token), dim=1)
+
+            # break if reached max_seq_len
+            # kv-cache cannot simply be shifted backward along seq_len dim, rotary embeddings would need to be reapplied
+            if tokens.shape[1] > self.params.max_seq_len: break
         return tokens
